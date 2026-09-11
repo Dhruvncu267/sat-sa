@@ -1,0 +1,21 @@
+# Uploaded/generated data -- keep the repo empty-by-default, like the app itself
+output/*.csv
+output/_incoming_report.csv
+
+# Python
+__pycache__/
+*.pyc
+
+# Supervisor login (legacy SQLite auth, no longer used) -- never commit
+server/supervisors.db
+server/.flask_secret
+
+# Firebase secrets -- NEVER commit these. The service-account key grants
+# full admin access to the Firestore database and Firebase Auth users.
+server/serviceAccountKey.json
+*serviceAccountKey*.json
+.env
+
+# Editor/OS junk
+.DS_Store
+Thumbs.db
