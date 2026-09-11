@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAT-SA — Supervisor Login</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-brand">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none"><path d="M12 2 L21 6 V11.5 C21 16.5 17.5 20.7 12 22 C6.5 20.7 3 16.5 3 11.5 V6 Z" fill="url(#g1)" stroke="#7fb3ff" stroke-width="1"/><path d="M8.5 12.2 L11 14.7 L15.5 9.5" stroke="#0b1220" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b9dff"/><stop offset="1" stop-color="#2f6fe0"/></linearGradient></defs></svg>
+      <div class="login-title">SAT-SA</div>
+      <div class="login-subtitle">Supervisory Analytics Tool for SOC Assessment</div>
+      <div class="login-restricted">🔒 Supervisor Access</div>
+    </div>
+
+    <form id="loginForm" autocomplete="off">
+      <div class="form-row">
+        <label>Supervisor Email / Username</label>
+        <input type="email" name="email" id="loginEmail" placeholder="you@organization.gov.in" required autofocus>
+      </div>
+      <div class="form-row">
+        <label>Password</label>
+        <div class="password-wrap">
+          <input type="password" name="password" id="loginPassword" placeholder="••••••••" required>
+          <button type="button" class="pw-toggle" id="pwToggle" aria-label="Show password">Show</button>
+        </div>
+      </div>
+
+      <div id="loginMsg" class="upload-msg"></div>
+
+      <button type="submit" class="btn primary login-submit" id="loginSubmit">Login</button>
+
+      <div class="login-switch">New here? <a href="#" id="showSignup">Create an account</a></div>
+    </form>
+
+    <form id="signupForm" autocomplete="off" hidden>
+      <div class="form-row">
+        <label>Full Name</label>
+        <input type="text" name="name" id="signupName" placeholder="e.g. A. Sharma">
+      </div>
+      <div class="form-row">
+        <label>Email</label>
+        <input type="email" name="email" id="signupEmail" placeholder="you@organization.gov.in" required>
+      </div>
+      <div class="form-row">
+        <label>Set Password (min 8 characters)</label>
+        <div class="password-wrap">
+          <input type="password" name="password" id="signupPassword" placeholder="••••••••" required>
+          <button type="button" class="pw-toggle" id="signupPwToggle" aria-label="Show password">Show</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Confirm Password</label>
+        <input type="password" name="confirm" id="signupConfirm" placeholder="••••••••" required>
+      </div>
+
+      <div id="signupMsg" class="upload-msg"></div>
+
+      <button type="submit" class="btn primary login-submit" id="signupSubmit">Create account &amp; log in</button>
+
+      <div class="login-switch">Already have an account? <a href="#" id="showLogin">Back to login</a></div>
+    </form>
+
+    <div class="login-foot">
+      This system is for authorized supervisory personnel. All access attempts may be logged.
+    </div>
+  </div>
+</div>
+
+<script type="module" src="login.js"></script>
+</body>
+</html>
