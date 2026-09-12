@@ -1,0 +1,271 @@
+# SOCAssure — Supervisory Analytics Tool for SOC Assessment
+
+Built for **SIH 2026 Problem Statement 26157** (NCIIPC / National Technical
+Research Organisation): a tool that reads an organization's security alert
+data and tells a supervisor, in plain English, whether that organization is
+handling cyber incidents well or badly — and exactly why.
+
+This is the **final, deployable version**: real Supervisor login (Firebase
+Authentication, with open self-service account creation), a Firestore
+database where every supervisor's own organizations are private to them, a
+calendar to pull up any past assessment, one-click delete, hover tooltips
+explaining every term, and a fixed-format PDF report — all served from a
+single public web address, so nobody needs Python, a terminal, or your
+laptop running to use it.
+
+## What's inside vs. what changed
+
+The actual "brain" of the tool — the rule-based detectors, the peer scoring,
+the Isolation Forest ML model, and the pipeline that combines them — is
+**completely unchanged** from the earlier prototype. This version only
+replaces *where data lives* and *who can see it*:
+
+- **Before:** data lived in local CSV files on one laptop; anyone with the
+  URL could open it, no login.
+- **Now:** data lives in Firestore (Google's cloud database). Anyone can
+  create their own supervisor login right on the login page (no invite code
+  needed), but each supervisor only ever sees the organizations THEY added
+  — one supervisor's companies and reports are completely invisible to
+  every other supervisor. The one thing that still quietly considers
+  everyone's data is the scoring itself: peer-comparison averages and the
+  AI anomaly model are computed across every organization in the system (so
+  "compared with similar companies" stays statistically meaningful even for
+  a supervisor who's only added one or two), while still never revealing
+  any other supervisor's actual company names or reports. See **Security
+  &amp; privacy notes** below for exactly how that boundary is enforced.
+
+## What's in here
+
+```
+SOCAssure/
+├── data/
+│   └── generate_data.py       # (dev/demo only) generates realistic fake companies
+├── engine/
+│   ├── detectors.py           # 9 rule-based checks for weak incident handling — unchanged
+│   ├── scoring.py             # peer benchmarking + composite risk scoring — unchanged
+│   ├── pipeline.py            # shared brain: runs rules + ML -> one result — unchanged
+│   ├── ingest.py              # turns one uploaded CSV into the engine's internal tables
+│   └── build.py               # (optional) static dashboard export
+├── ml/
+│   └── anomaly_model.py       # Isolation Forest (scikit-learn) anomaly-detection layer — unchanged
+├── server/
+│   ├── app.py                 # Flask REST API + serves the UI; every data route requires login
+│   ├── firebase_setup.py      # Firebase Admin SDK init + ID-token verification
+│   ├── firestore_store.py     # all reads/writes to Firestore (orgs, assessments, supervisors)
+│   ├── report_pdf.py          # builds the fixed-format professional PDF report
+│   ├── create_supervisor.py   # (optional, advanced) command-line alternative to the /setup web page
+│   └── static/                # the webpage (index.html, styles.css, app.js, firebase-config.js)
+├── Procfile                    # for deploying to Render/Railway/Heroku-style hosts
+├── requirements.txt
+└── README.md
+```
+
+## 1. Set up Firebase (one-time, ~10 minutes)
+
+You already created a Firebase project (its internal ID is `sat-sa` — this
+is just a backend identifier, it's never shown to users and does **not**
+need to match the app's name, so there's nothing to rename here) with
+Authentication and Firestore enabled — if you're setting this up fresh, or
+on a new machine, here's the full process:
+
+1. Go to [console.firebase.google.com](https://console.firebase.google.com) → **Add project**.
+2. **Build → Authentication → Get started → Sign-in method → Email/Password → Enable.** Just Email/Password (not, say, "email link") keeps it simple — account creation itself is handled entirely by this app's own "Create an account" box (see Step C), not by anything you need to configure in Firebase's console.
+3. **Build → Firestore Database → Create database** → start in **production mode** (the default deny-all rules are fine — this app only ever talks to Firestore through the backend using the Admin SDK, which bypasses client-side security rules entirely, so the database is never reachable directly from a browser).
+4. **Project settings (gear icon) → Service accounts → Generate new private key.** This downloads a JSON file — this is your admin credential, treat it like a password. Save it as `server/serviceAccountKey.json` for local development (it's already in `.gitignore`, so it will never be committed).
+5. **Project settings → General → Your apps → Add app → Web app.** Copy the `firebaseConfig` object it gives you into `server/static/firebase-config.js` (this file only holds public, safe-to-expose identifiers — it is meant to ship to the browser, unlike the service-account key).
+
+## 2. Put it online as a real website — everything below is done by clicking in a browser, no command line at all
+
+### Step A — Put the code on GitHub (drag-and-drop, no `git` commands)
+
+1. Go to [github.com](https://github.com) and sign in (or create a free account).
+2. Click the **+** in the top-right corner → **New repository**. Name it e.g. `socassure` (if you already have a repo from before under a different name, like `sat-sa`, that's fine too — you don't need to rename it), keep it **Private**, click **Create repository**.
+3. On the empty repo page, click **uploading an existing file**.
+4. Open the unzipped `SOCAssure` folder on your computer, select everything inside it, and **drag it into the browser window**. (`serviceAccountKey.json` isn't in this zip at all, so there's nothing to accidentally upload.)
+5. Scroll down, click **Commit changes**. Your code is now on GitHub.
+
+### Step B — Deploy it on Render (free)
+
+1. Go to [render.com](https://render.com) → **Get Started** → sign up with your GitHub account (one click, no separate password).
+2. Click **New → Web Service**, then pick the repo you just uploaded (whatever you named it — `socassure`, `sat-sa`, anything).
+3. Fill in:
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `gunicorn --chdir server --bind 0.0.0.0:$PORT app:app`
+4. Scroll to **Environment Variables** → **Add Environment Variable**:
+   - Key: `FIREBASE_SERVICE_ACCOUNT_JSON` → Value: open your `serviceAccountKey.json` file in Notepad, select all, copy, and paste the whole thing in here. (This one is required — the app won't start without it.)
+   - Optionally, Key: `SETUP_TOKEN` → Value: any hard-to-guess word or phrase. This only enables the older, token-gated `/setup?token=...` page as a second way to create an account (see **Advanced** at the bottom) — you don't need it for normal use, since Step C below works with no extra setup.
+5. Click **Create Web Service**. Wait a few minutes — Render is installing everything and starting the app. When it says **Live**, it gives you a web address like `https://socassure.onrender.com` (the exact address depends on whatever you named the Render service — if you already deployed earlier under a name like `sat-sa`, your real address keeps saying `sat-sa`; only the app's own name shown on the page changes to SOCAssure, unless you rename the Render service itself).
+
+### Step C — Create your login (also just a web page, no command line)
+
+Go to your own web address (whatever Render gave you), click **"Create an account"** on the login page, fill in your name, email, and a password, and click **Create account &amp; log in** — you're immediately signed in.
+
+Anyone with the website's address can create their own account this way; there's no invite code to hand out. Each account only ever sees the organizations it personally adds — nobody else's data shows up for them, even though the scoring itself still benefits from everyone's data behind the scenes (see **Security &amp; privacy notes**).
+
+### Step D — Use it
+
+Go to your own web address, log in with what you just created. This is the link you give your whole team — each person creates their own account the same way you did in Step C, on any device, with nothing installed. Your computer does not need to be on. Remember each person will only see the organizations they themselves add (see **Security & privacy notes**), not each other's.
+
+## Adding an organization — the file format
+
+Inside the app, **"+ Add organization"** → **"Download an example file"**
+gives a ready-to-fill template. One row per alert:
+
+| Column | What to put |
+|---|---|
+| `asset_name` | Whatever the system is called, e.g. "Core Banking Server" |
+| `asset_criticality` | Critical / High / Medium / Low (blank → Medium) |
+| `severity` | Critical / High / Medium / Low |
+| `category` | e.g. Malware, Phishing, Unauthorized Access |
+| `disposition` | True Positive / False Positive / Benign |
+| `opened_at` | When the alert was raised, e.g. `2026-06-01 14:30` |
+| `closed_at` | When the case was closed |
+| `escalated` | Yes / No |
+| `escalated_at` | Only if escalated = Yes |
+| `root_cause_fixed` | Yes / No — was the actual root cause found & fixed? |
+| `investigation_notes` | The investigator's actual notes — the tool measures how detailed they are itself |
+
+Only `asset_name`, `severity`, `category`, `disposition`, `opened_at`,
+`closed_at`, `escalated`, `root_cause_fixed` are required.
+
+## How the scoring actually works
+
+1. **Rule-based checks (`engine/detectors.py`) — 9 checks for known warning signs**: critical alerts closed in minutes with no escalation; the same problem recurring on one system without ever being fixed; a supposedly-monitored system generating almost no alerts (a blind spot); investigation notes that are suspiciously short and generic. Every check comes with a plain-English reason and the specific alert records behind it.
+
+2. **AI/ML layer (`ml/anomaly_model.py`) — genuine machine learning, not fake numbers.** An **Isolation Forest** (unsupervised — needs no pre-labelled "good/bad" examples) compares each company's overall numbers (alert volume, escalation rate, closure speed, note detail, root-cause rate) against similar companies and flags whichever look statistically unusual *as a combination* — catching patterns the fixed rules didn't think to check for. It retrains automatically every time the data changes; there's no separate manual training step, and no external AI API is ever called — the model runs entirely inside this backend.
+
+3. **Merging the two into one score:** `final_score = 75% × rule_score + 25% × ML_score`, scaled to 0–100 (see `engine/pipeline.py`). Rules get the majority weight because they're fully explainable — a supervisor can verify exactly why each one fired; ML adds coverage for patterns nobody wrote a specific rule for.
+
+4. **Peer comparison:** a company's numbers are only ever compared against other companies in the *same sector* (a bank against banks, a power company against power companies) — never across sectors, since "normal" looks completely different for each.
+
+5. **Execution Gap vs. Negative Space** (the two flag categories shown throughout the app): an *Execution Gap* finding means something clearly happened that shouldn't have (e.g. a critical alert closed in 4 minutes with no follow-up). A *Negative Space* finding means something that should exist is simply missing (e.g. escalation records that never appear despite critical incidents). Both are shown with a one-line plain-English definition wherever they appear.
+
+The main screen shows one score out of 100 and a plain-English list of
+reasons why. Every rule ID, evidence row, and raw ML number is still there
+for anyone who wants to verify it — the **"Technical Details"** section on
+each company's page (collapsed by default, so the main view stays simple
+for a non-technical examiner).
+
+## The calendar / assessment history
+
+Every time an organization's data changes, that day's full result is saved
+to Firestore under that date. Pick any organization, use the date field
+under **"Assessment history,"** and **"Load this date"** — if a saved
+assessment exists for that exact date it's shown exactly as it was; if not,
+the app says so clearly instead of guessing or showing something else.
+
+To add more alert data to an organization that already exists (instead of
+only being able to attach a file when it's first created), open that
+organization, pick a date on its calendar, and click **"+ Add report for
+this date."** The new file's rows are added on top of everything already
+stored for that organization — nothing is overwritten — the whole company is
+re-analysed, and the fresh result is saved as that organization's assessment
+for the date you picked.
+
+## Honest limitations (good to know before judges ask)
+
+- **This version needs internet access** — Firebase Authentication and
+  Firestore are cloud services. This is a real trade-off against a fully
+  air-gapped/offline deployment, made deliberately so multiple supervisors
+  on different devices can share one login system and one database, per
+  the final requirements. If NCIIPC ultimately needs a fully offline,
+  on-premise deployment, the same rule engine and ML layer (100% unchanged
+  throughout this rework) could be pointed at a local database and local
+  auth system instead — the scoring logic itself has no cloud dependency.
+- The ML model trains itself fresh from whatever companies exist at the
+  time — it needs a handful of companies in the same sector before its
+  contribution becomes meaningful. The rule-based checks work regardless of
+  how much data there is.
+- Each organization is currently added one CSV file at a time; a
+  production version would need to accept whatever export format NCIIPC's
+  real systems produce directly (JSON, database exports, etc.).
+
+## Security & privacy notes
+
+- **Signup is open.** Anyone who reaches the website can create their own
+  supervisor login via the "Create an account" box on the login page
+  (`POST /api/signup` — no invite code, no approval step). This was a
+  deliberate choice to keep account creation simple; it does mean anyone
+  with the URL can get a login, which is a real trade-off against the
+  earlier token-gated design. If NCIIPC needs invite-only access instead,
+  the older `/setup?token=...` page (see **Advanced** below) can be made
+  the *only* way in by removing the `/api/signup` route in `app.py`.
+- **Every supervisor's organizations are private to them.** Each
+  organization stores which supervisor created it
+  (`organizations/{id}.created_by`), and every route that touches a
+  specific organization — viewing it, its assessment history, its PDF,
+  adding a report to it, deleting it — checks that the logged-in
+  supervisor is the one who created it, returning the exact same "not
+  found" whether the id doesn't exist at all or just belongs to someone
+  else (`_owns_entity` in `app.py`). This is enforced on the server, on
+  every request — not just something the dashboard happens to hide.
+- **Peer/AI comparison is the one deliberate exception.** Working out
+  whether one company's numbers are unusual requires comparing it against
+  *other* companies in its sector — so behind the scenes, the scoring
+  pipeline (`firestore_store.recompute_all`) still runs across every
+  organization in the system, from every supervisor. Only the final,
+  per-supervisor view is filtered down afterwards
+  (`firestore_store.scope_analysis_to_owner`) to show just that
+  supervisor's own organizations. A supervisor never sees another
+  supervisor's company name, score, or report — only anonymous aggregate
+  numbers (like "compared with 3 other Banking organizations") that were
+  partly shaped by data they can't see. Worth knowing: when very few
+  organizations exist in a sector, an aggregate like a "sector average" can
+  come close to revealing one specific hidden company's numbers — this is
+  an inherent trade-off of small sample sizes, not a bug, and matters less
+  as more organizations are added.
+- The Firebase service-account key (`serviceAccountKey.json`) grants full
+  admin access to your database and user accounts. It is gitignored and
+  must never be committed, emailed, or pasted anywhere outside your own
+  Firebase Console / hosting provider's environment-variable settings.
+  If a key is ever exposed, go to **Firebase Console → Project settings →
+  Service accounts → Manage service account permissions**, delete it, and
+  generate a fresh one.
+- Every `/api/*` route except `/api/signup` and the static login page
+  itself requires a valid Firebase ID token *and* an active supervisor
+  profile in Firestore — a Firebase account that exists but was never
+  provisioned (or was deactivated) is rejected even though it can
+  technically log in to Firebase itself.
+- **Login does not persist across browser restarts, on purpose.** By
+  default Firebase keeps a supervisor signed in indefinitely, even after
+  closing and reopening the browser. This app deliberately turns that off,
+  using `inMemoryPersistence` (`app.js`): the signed-in state lives only in
+  a plain in-page JavaScript variable, never written to `localStorage`,
+  `sessionStorage`, or a cookie. Reopening the app (or even just reloading
+  the page) always requires logging in again.
+  An earlier version of this used `browserSessionPersistence`
+  (`sessionStorage`-based) instead. That looked correct in testing, but some
+  browsers' "continue where you left off" / session-restore setting (seen
+  in Microsoft Edge, for example) silently restores `sessionStorage` when
+  the browser reopens — which quietly defeated the "always log in again"
+  behavior even though the code was working exactly as documented.
+  `inMemoryPersistence` never touches any browser storage at all, so there
+  is nothing for a browser's session-restore feature to bring back. The
+  one trade-off: the login screen and the dashboard now have to live on the
+  *same* page (`index.html`, toggled with the `hidden` attribute — there is
+  no more separate `login.html` page to navigate to) instead of two
+  separate pages, because `inMemoryPersistence` cannot survive a real page
+  navigation, only a same-page visibility toggle.
+
+## Advanced: an invite-only alternative to open signup
+
+The original design for this app (before open signup was added) only let
+you create an account through a private, token-gated link:
+`https://<your-web-address>/setup?token=...`, where `...` is the
+`SETUP_TOKEN` value you set in Render — any other link, or no token, gets a
+plain "not found" that never reveals the page exists. That route is still
+in the app (`/setup` in `app.py`) and works exactly as before if you set
+`SETUP_TOKEN`; it's just no longer the only way in, since `/api/signup` is
+open. To go back to invite-only access, remove or comment out the
+`/api/signup` route in `app.py` so `/setup?token=...` becomes the sole way
+to create an account again.
+
+There's also a command-line alternative, `create_supervisor.py`, for a
+machine that has your `serviceAccountKey.json`:
+
+```bash
+cd server
+python3 create_supervisor.py                       # prompts for email, name, password
+python3 create_supervisor.py --deactivate a@b.gov.in
+python3 create_supervisor.py --reactivate a@b.gov.in
+```
